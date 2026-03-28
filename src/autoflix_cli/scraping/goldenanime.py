@@ -39,10 +39,13 @@ class AnimeExtractor:
         }
 
     def _decrypt_allanime(self, hex_str):
-        """Simple decoding of Allanime hex links."""
+        """Allanime hex decryption (XOR 56)."""
         try:
-            return bytes.fromhex(hex_str[2:]).decode("utf-8")
-        except:
+            # Extract hex part after '-'
+            hex_part = hex_str.split("-")[-1]
+            bytes_data = bytes.fromhex(hex_part)
+            return "".join(chr(b ^ 56) for b in bytes_data)
+        except Exception:
             return hex_str
 
     def search_sudatchi(self, anilist_id, episode=1):
@@ -60,7 +63,7 @@ class AnimeExtractor:
             if not ep_id:
                 return []
 
-            # The stream link is an API call that often returns the M3U8
+            # The stream link is an API call that returns the M3U8 (Sudatchi logic)
             stream_url = f"{base_url}/api/streams?episodeId={ep_id}"
 
             return [
@@ -71,20 +74,20 @@ class AnimeExtractor:
                     "type": "M3U8",
                 }
             ]
-        except Exception as e:
+        except Exception:
             return []
 
     def search_allanime(self, title, episode=1):
-        """Extraction from Allanime using GQL hashes."""
+        """Extraction from Allanime using latest GQL hashes and XOR-56 decryption."""
         api_url = self.allanime_api
         referer = self.allanime_referer
 
-        # GQL Hashes (CineStream)
-        search_hash = "06327bc10dd682e1ee7e07b6db9c16e9ad2fd56c1b769e47513128cd5c9fc77a"
-        ep_hash = "5f1a64b73793cc2234a389cf3a8f93ad82de7043017dd551f38f65b89daa65e0"
+        # Latest GQL Hashes from CineStream
+        search_hash = "a24c500a1b765c68ae1d8dd85174931f661c71369c89b92b88b75a725afc471c"
+        ep_hash = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
 
         try:
-            # 1. Search
+            # 1. Search (Query Hash)
             vars_search = {
                 "search": {"query": title, "types": ["TV", "Movie"]},
                 "limit": 26,
@@ -107,32 +110,24 @@ class AnimeExtractor:
             if not shows:
                 return []
 
-            # 1.1 Match title
+            # Match title logic
             show_id = None
-            if title:
-                t_lower = title.lower().strip()
+            t_lower = title.lower().strip()
+            for edge in shows:
+                name = (edge.get("name") or "").lower().strip()
+                eng = (edge.get("englishName") or "").lower().strip()
+                if name == t_lower or eng == t_lower:
+                    show_id = edge.get("_id")
+                    break
+
+            if not show_id and shows:
+                # Fuzzy fallback
                 for edge in shows:
                     name = (edge.get("name") or "").lower().strip()
                     eng = (edge.get("englishName") or "").lower().strip()
-                    if name == t_lower or eng == t_lower:
+                    if t_lower in name or t_lower in eng:
                         show_id = edge.get("_id")
                         break
-
-                if not show_id:
-                    # Fallback to fuzzy: find result that contains title AND doesn't have "Season"
-                    # unless title itself has "Season"
-                    has_season_query = "season" in t_lower or "saison" in t_lower
-                    for edge in shows:
-                        name = (edge.get("name") or "").lower().strip()
-                        eng = (edge.get("englishName") or "").lower().strip()
-                        if t_lower in name or t_lower in eng:
-                            if not has_season_query:
-                                if "season" not in name and "season" not in eng:
-                                    show_id = edge.get("_id")
-                                    break
-                            else:
-                                show_id = edge.get("_id")
-                                break
 
             if not show_id and shows:
                 show_id = shows[0].get("_id")
@@ -140,7 +135,7 @@ class AnimeExtractor:
             if not show_id:
                 return []
 
-            # 2. Links
+            # 2. Links (EP Hash)
             vars_ep = {
                 "showId": show_id,
                 "translationType": "sub",
@@ -164,6 +159,11 @@ class AnimeExtractor:
                 url = src.get("sourceUrl")
                 if url.startswith("--"):
                     url = self._decrypt_allanime(url)
+
+                # Fix relative paths if necessary
+                if url.startswith("/"):
+                    url = "https://allanime.day" + url
+
                 if not url.startswith("http"):
                     continue
 
@@ -176,52 +176,43 @@ class AnimeExtractor:
                     }
                 )
             return results
-        except:
+        except Exception:
             return []
 
     def search_anizone(self, title, episode=1):
-        """Extraction from Anizone (Regex used to avoid bs4 dependency)."""
+        """Extraction from Anizone (Updated Search and DOM selection)."""
         base_url = self.anizone_base
         try:
-            # 1. Search
+            # 1. Search (New endpoint)
             r = scraper.get(
-                f"{base_url}/anime?search={title}",
+                f"{base_url}/search?keyword={title}",
                 headers=self.headers,
                 timeout=10,
             )
 
-            # Find all relevant matches
-            matches = re.finditer(r'href="(https://anizone\.to/anime/([^"]+))"', r.text)
-            best_url = None
+            # Match slug logic
+            matches = re.finditer(r'href="/anime/([^"]+)"', r.text)
+            best_slug = None
+            t_slug = title.lower().replace(" ", "-")
 
-            if title:
-                t_slug = title.lower().replace(" ", "-")
-                for m in matches:
-                    full_url = m.group(1)
-                    slug = m.group(2)
-                    if not best_url:
-                        best_url = full_url  # Fallback to first
-                    if slug == t_slug:
-                        best_url = full_url
-                        break
-                    if t_slug in slug and "season" not in slug:
-                        best_url = full_url
+            for m in matches:
+                slug = m.group(1)
+                if not best_slug:
+                    best_slug = slug
+                if slug == t_slug:
+                    best_slug = slug
+                    break
+                if t_slug in slug and "season" not in slug:
+                    best_slug = slug
 
-            if not best_url:
-                match = re.search(r'href="(https://anizone\.to/anime/[^"]+)"', r.text)
-                if match:
-                    best_url = match.group(1)
-
-            if not best_url:
+            if not best_slug:
                 return []
 
-            # 2. Episode
-            ep_url = f"{best_url}/{episode}"
-            r = scraper.get(
-                ep_url,
-                headers=self.headers,
-                timeout=10,
-            )
+            # 2. Episode page
+            ep_url = f"{base_url}/anime/{best_slug}/{episode}"
+            r = scraper.get(ep_url, headers=self.headers, timeout=10)
+
+            # Find media-player src (M3U8)
             player_match = re.search(r'<media-player[^>]+src="([^"]+)"', r.text)
 
             if player_match:
@@ -233,37 +224,50 @@ class AnimeExtractor:
                         "type": "M3U8",
                     }
                 ]
-        except:
+        except Exception:
             pass
         return []
 
     def search_animetsu(self, title, anilist_id, episode=1):
-        """Extraction from Animetsu (Gojo)."""
-        if not anilist_id:
-            return []
+        """Extraction from Animetsu (Updated Gojo V2 API)."""
+        base_api = f"{self.animetsu_base}/v2/api"
+        headers = self.animetsu_headers
+
         try:
-            # 1. Search
+            # 1. Search (V2 API)
             r = scraper.get(
-                f"{self.animetsu_api}/api/anime/search/?query={title}",
-                headers=self.animetsu_headers,
+                f"{base_api}/anime/search/?query={title}",
+                headers=headers,
                 timeout=10,
             )
             results = r.json().get("results", [])
-            gojo_id = next(
-                (
-                    item["id"]
-                    for item in results
-                    if item.get("anilist_id") == anilist_id
-                ),
-                None,
-            )
+
+            # Find match by title or anilist_id
+            gojo_id = None
+            for item in results:
+                if item.get("anilist_id") == anilist_id:
+                    gojo_id = item["id"]
+                    break
+
+            if not gojo_id and results:
+                # Fallback to title match
+                t_lower = title.lower().strip()
+                for item in results:
+                    titles = item.get("title", {})
+                    if (
+                        t_lower in (titles.get("english") or "").lower()
+                        or t_lower in (titles.get("romaji") or "").lower()
+                    ):
+                        gojo_id = item["id"]
+                        break
+
             if not gojo_id:
                 return []
 
             # 2. Servers
             r = scraper.get(
-                f"{self.animetsu_api}/api/anime/servers/{gojo_id}/{episode}",
-                headers=self.animetsu_headers,
+                f"{base_api}/anime/servers/{gojo_id}/{episode}",
+                headers=headers,
                 timeout=10,
             )
             servers_data = r.json()
@@ -276,15 +280,16 @@ class AnimeExtractor:
 
                 for lang in ["sub", "dub"]:
                     try:
+                        # 3. Stream Links (Oppai endpoint)
                         r = scraper.get(
-                            f"{self.animetsu_api}/api/anime/oppai/{gojo_id}/{episode}?server={server_id}&source_type={lang}",
-                            headers=self.animetsu_headers,
+                            f"{base_api}/anime/oppai/{gojo_id}/{episode}?server={server_id}&source_type={lang}",
+                            headers=headers,
                             timeout=10,
                         )
                         stream_data = r.json()
                         sources = stream_data.get("sources", [])
 
-                        # Extract softsubs
+                        # Subtitles
                         subs = []
                         for sub in stream_data.get("subtitles", []):
                             subs.append(
@@ -295,30 +300,28 @@ class AnimeExtractor:
                             url = src.get("url")
                             if not url:
                                 continue
-                            # Animetsu uses a proxy
+
+                            # Apply proxy if relative
                             if not url.startswith("http"):
                                 url = f"https://ani.metsu.site/proxy/{url.lstrip('/')}"
 
-                            player = {
-                                "source": f"Animetsu ({lang.upper()} - {server_id})",
-                                "quality": src.get("quality", "1080p"),
-                                "url": url,
-                                "type": (
-                                    "M3U8" if src.get("type") != "video/mp4" else "MP4"
-                                ),
-                                "subtitles": subs if subs else None,
-                            }
-
-                            if (
-                                server_id == "kite" or server_id == "zoro"
-                            ) and lang.upper() == "SUB":
-                                results.insert(0, player)
-                            else:
-                                results.append(player)
-                    except:
+                            results.append(
+                                {
+                                    "source": f"Animetsu ({lang.upper()} - {server_id})",
+                                    "quality": src.get("quality", "1080p"),
+                                    "url": url,
+                                    "type": (
+                                        "M3U8"
+                                        if src.get("type") != "video/mp4"
+                                        else "MP4"
+                                    ),
+                                    "subtitles": subs if subs else None,
+                                }
+                            )
+                    except Exception:
                         continue
             return results
-        except:
+        except Exception:
             return []
 
     def extract_vo(self, title=None, anilist_id=None, episode=1):

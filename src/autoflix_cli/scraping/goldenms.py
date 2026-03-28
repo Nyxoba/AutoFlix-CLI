@@ -19,7 +19,9 @@ class MediaExtractor:
         )
         self.videasy_api = "https://" + portals.get("videasy", "api.videasy.net")
         self.vidlink_api = "https://" + portals.get("vidlink", "vidlink.pro")
-        self.hexa_api = "https://" + portals.get("hexa", "themoviedb.hexa.su")
+        self.hexa_api = "https://" + portals.get("hexa", "theemoviedb.hexa.su")
+        self.mapple_api = "https://" + portals.get("mapple", "mapple.uk")
+        self.xpass_api = "https://" + portals.get("xpass", "play.xpass.top")
 
         self.headers = {"Connection": "keep-alive"}
 
@@ -30,6 +32,13 @@ class MediaExtractor:
         self, title, tmdb_id=None, imdb_id=None, year=None, season=None, episode=None
     ):
         """Extraction via Videasy (Multi-server)."""
+        headers = {
+            "Accept": "*/*",
+            "User-Agent": scraper.headers.get("User-Agent", "Mozilla/5.0"),
+            "Origin": "https://cineby.gd",
+            "Referer": "https://cineby.gd/",
+        }
+
         servers = [
             "myflixerzupcloud",
             "1movies",
@@ -45,6 +54,7 @@ class MediaExtractor:
         if not title:
             return []
 
+        # Double encoding as per CineStream logic
         enc_title = self._quote(self._quote(title))
         media_type = "movie" if season is None else "tv"
 
@@ -62,11 +72,13 @@ class MediaExtractor:
                 if episode:
                     url += f"&episodeId={episode}"
 
-                r = scraper.get(url, headers=self.headers, timeout=10)
+                r = scraper.get(url, headers=headers, timeout=10)
+                if r.status_code != 200:
+                    continue
                 enc_data = r.text
 
-                # Decryption
-                payload = {"text": enc_data, "id": str(tmdb_id) if tmdb_id else ""}
+                # Decryption via multi-decrypt (passing tmdbId as 'id')
+                payload = {"text": enc_data, "id": tmdb_id}
                 r_dec = scraper.post(
                     f"{self.multi_decrypt_api}/dec-videasy", json=payload, timeout=10
                 )
@@ -74,6 +86,11 @@ class MediaExtractor:
                 if r_dec.status_code == 200:
                     data = r_dec.json().get("result", {})
                     sources = data.get("sources", [])
+                    subs = [
+                        {"lang": s.get("language"), "url": s.get("url")}
+                        for s in data.get("subtitles", [])
+                    ]
+
                     for src in sources:
                         results.append(
                             {
@@ -81,8 +98,12 @@ class MediaExtractor:
                                 "quality": src.get("quality", "Multi"),
                                 "url": src.get("url"),
                                 "type": (
-                                    "M3U8" if ".m3u8" in src.get("url", "") else "VIDEO"
+                                    "M3U8"
+                                    if ".m3u8" in src.get("url", "").lower()
+                                    else "VIDEO"
                                 ),
+                                "subtitles": subs if subs else None,
+                                "headers": headers,
                             }
                         )
             except:
@@ -101,9 +122,10 @@ class MediaExtractor:
             enc_data = r_enc.json().get("result")
 
             headers = {
-                **self.headers,
+                "User-Agent": scraper.headers.get("User-Agent", "Mozilla/5.0"),
+                "Connection": "keep-alive",
                 "Referer": f"{self.vidlink_api}/",
-                "Origin": f"{self.vidlink_api}/",
+                "Origin": self.vidlink_api,
             }
 
             if season is None:
@@ -122,6 +144,7 @@ class MediaExtractor:
                         "quality": "Multi",
                         "url": m3u8_url,
                         "type": "M3U8",
+                        "headers": headers,
                     }
                 ]
         except:
@@ -129,24 +152,41 @@ class MediaExtractor:
         return []
 
     def search_hexa(self, tmdb_id, season=None, episode=None):
-        """Extraction via Hexa."""
+        """Extraction via Hexa with dynamic security handshake."""
         if not tmdb_id:
             return []
         try:
+            # 1. Endpoint
             if season is None:
                 url = f"{self.hexa_api}/api/tmdb/movie/{tmdb_id}/images"
             else:
                 url = f"{self.hexa_api}/api/tmdb/tv/{tmdb_id}/season/{season}/episode/{episode}/images"
 
+            # 2. Security Handshake
             import secrets
 
-            key = secrets.token_hex(32)
+            key = secrets.token_hex(32)  # Generate 32-byte key
 
-            headers = {**self.headers, "Accept": "plain/text", "X-Api-Key": key}
+            # Fetch X-Cap-Token from multi-decrypt
+            r_token = scraper.get(f"{self.multi_decrypt_api}/enc-hexa", timeout=10)
+            cap_token = r_token.json().get("result", {}).get("token")
 
+            headers = {
+                "User-Agent": scraper.headers.get("User-Agent", "Mozilla/5.0"),
+                "Accept": "text/plain",
+                "X-Api-Key": key,
+                "X-Fingerprint-Lite": "e9136c41504646444",
+                "Referer": "https://hexa.su/",
+                "X-Cap-Token": cap_token,
+            }
+
+            # 3. Request
             r_enc = scraper.get(url, headers=headers, timeout=10)
+            if r_enc.status_code != 200:
+                return []
             enc_data = r_enc.text
 
+            # 4. Decrypt
             payload = {"text": enc_data, "key": key}
             r_dec = scraper.post(
                 f"{self.multi_decrypt_api}/dec-hexa", json=payload, timeout=10
@@ -163,12 +203,144 @@ class MediaExtractor:
                             "quality": "Multi",
                             "url": src.get("url"),
                             "type": "M3U8",
+                            "headers": {"Referer": "https://hexa.su/"},
                         }
                     )
                 return results
         except:
             pass
         return []
+
+    def search_mapple(self, tmdb_id, season=None, episode=None):
+        """Extraction via Mapple."""
+        if not tmdb_id:
+            return []
+
+        base_url = self.mapple_api
+        headers = {
+            "User-Agent": scraper.headers.get("User-Agent", "Mozilla/5.0"),
+            "Referer": f"{base_url}/",
+        }
+
+        try:
+            # 1. Get Token
+            media_type = "movie" if season is None else "tv"
+            tv_slug = f"{season}-{episode}" if season else ""
+            watch_url = f"{base_url}/watch/{media_type}/{tmdb_id}"
+            if season:
+                watch_url += f"/{tv_slug}"
+
+            r = scraper.get(watch_url, headers=headers, timeout=10)
+            token_match = re.search(
+                r'window\.__REQUEST_TOKEN__\s*=\s*"([^"]+)"', r.text
+            )
+            if not token_match:
+                return []
+            token = token_match.group(1)
+
+            # 2. Extract Streams (Iterate through sources)
+            sources = [
+                "mapple",
+                "sakura",
+                "oak",
+                "willow",
+                "cherry",
+                "pines",
+                "magnolia",
+                "sequoia",
+            ]
+            results = []
+
+            for source in sources:
+                try:
+                    payload = {
+                        "data": {
+                            "mediaId": int(tmdb_id),
+                            "mediaType": media_type,
+                            "tv_slug": tv_slug,
+                            "source": source,
+                        },
+                        "endpoint": "stream-encrypted",
+                    }
+
+                    r_enc = scraper.post(
+                        f"{base_url}/api/encrypt",
+                        json=payload,
+                        headers=headers,
+                        timeout=10,
+                    )
+                    stream_path = r_enc.json().get("url")
+                    if not stream_path:
+                        continue
+
+                    final_url = f"{base_url}{stream_path}&requestToken={token}"
+                    r_streams = scraper.get(
+                        final_url, headers=headers, timeout=10
+                    ).json()
+
+                    if r_streams.get("success"):
+                        stream_url = r_streams.get("data", {}).get("stream_url")
+                        if stream_url:
+                            results.append(
+                                {
+                                    "source": f"Mapple ({source.upper()})",
+                                    "quality": "1080p",
+                                    "url": stream_url,
+                                    "type": "M3U8",
+                                    "headers": {"Referer": f"{base_url}/"},
+                                }
+                            )
+                except:
+                    continue
+            return results
+        except:
+            return []
+
+    def search_xpass(self, tmdb_id, season=None, episode=None):
+        """Extraction via Xpass."""
+        if not tmdb_id:
+            return []
+
+        base_url = self.xpass_api
+        try:
+            embed_url = (
+                f"{base_url}/e/movie/{tmdb_id}"
+                if season is None
+                else f"{base_url}/e/tv/{tmdb_id}/{season}/{episode}"
+            )
+            r = scraper.get(embed_url, headers={"Referer": f"{base_url}/"}, timeout=10)
+
+            # Extract backups/sources via regex
+            matches = re.findall(r'href=["\']([^"\']+/playlist/[^"\']+)["\']', r.text)
+            results = []
+
+            for url in matches:
+                full_url = url if url.startswith("http") else f"{base_url}{url}"
+                try:
+                    r_json = scraper.get(full_url, timeout=10).json()
+                    playlist = r_json.get("playlist", [])[0]
+                    sources = playlist.get("sources", [])
+                    for src in sources:
+                        file_url = src.get("file")
+                        if file_url:
+                            results.append(
+                                {
+                                    "source": "Xpass",
+                                    "quality": "Multi",
+                                    "url": file_url,
+                                    "type": (
+                                        "M3U8"
+                                        if "m3u8" in file_url.lower()
+                                        else "VIDEO"
+                                    ),
+                                    "headers": {"Referer": f"{base_url}/"},
+                                }
+                            )
+                except:
+                    continue
+            return results
+        except:
+            return []
 
     def extract(
         self,
@@ -182,10 +354,12 @@ class MediaExtractor:
         """Main search method."""
         results = []
 
-        # Priority: Vidlink, Hexa, Videasy
+        # Priority: Vidlink, Hexa, Xpass, Mapple, Videasy
         if tmdb_id:
             results.extend(self.search_vidlink(tmdb_id, season, episode))
             results.extend(self.search_hexa(tmdb_id, season, episode))
+            results.extend(self.search_xpass(tmdb_id, season, episode))
+            results.extend(self.search_mapple(tmdb_id, season, episode))
 
         if title:
             results.extend(
