@@ -50,10 +50,10 @@ class SubtitleExtractor:
 
     def get_wyzie(self, imdb_id, season=None, episode=None):
         """WYZIE Subtitles API."""
-        base_url = "https://sub.wyzie.ru"
-        url = f"{base_url}/search?id={imdb_id}"
+        base_url = "https://sub.wyzie.io"
+        url = f"{base_url}/search?id={imdb_id}&source=all"
         if season and episode:
-            url += f"&season={season}&episode={episode}"
+            url = f"{base_url}/search?id={imdb_id}&season={season}&episode={episode}&source=all"
 
         try:
             response = requests.get(url, timeout=10, impersonate="chrome")
