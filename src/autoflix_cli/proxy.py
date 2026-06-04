@@ -20,7 +20,7 @@ player_heartbeat_time = 0
 
 app = Flask(__name__)
 
-# Requested Google DNS Options
+# Requested Cloudflare DNS Options
 DNS_OPTIONS = {
     CurlOpt.DOH_URL: "https://1.1.1.1/dns-query",
     CurlOpt.DOH_SSL_VERIFYPEER: 0,
