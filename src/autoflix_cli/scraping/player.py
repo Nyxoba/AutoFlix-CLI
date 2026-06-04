@@ -70,6 +70,8 @@ def get_hls_link_default(url: str, headers: dict) -> str:
 
     code = deobfuscate(response.text)
 
+    code.replace("cdn-tnmr", "tnmr") # this is for lulustream
+
     return extract_hls_url(code)
 
 

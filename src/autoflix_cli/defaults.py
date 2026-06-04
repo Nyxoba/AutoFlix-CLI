@@ -16,18 +16,10 @@ DEFAULT_PLAYERS = {
     "vidmoly": {"type": "vidmoly"},
     # "oneupload": {"type": "default"},
     "tipfly": {"type": "default"},
-    # "luluvdoo": {
-    #     "type": "b",
-    #     "sec_headers": "Sec-Fetch-Dest:empty;Sec-Fetch-Mode:cors;Sec-Fetch-Site:cross-site",
-    # },
-    # "luluvdo": {
-    #     "type": "b",
-    #     "sec_headers": False,
-    # },
-    # "lulustream": {
-    #     "type": "b",
-    #     "sec_headers": "Sec-Fetch-Dest:empty;Sec-Fetch-Mode:cors;Sec-Fetch-Site:cross-site",
-    # },
+    "lulustream": {"type": "default"},
+    "luluvdo": {"type": "default"},
+    "luluvdoo": {"type": "default"},
+    "luluvid": {"type": "default"},
     "ups2up": {"type": "default"},
     "ico3c": {"type": "default"},
     "fsvid": {"type": "default", "m3u8-extractor": {"no-header": True}},
