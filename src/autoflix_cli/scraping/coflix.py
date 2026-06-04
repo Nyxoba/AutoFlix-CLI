@@ -186,7 +186,7 @@ def get_series(url: str) -> CoflixSeries:
         for genre_link in genres_container.find_all("a"):
             genres.append(genre_link.text)
 
-    seasons_container = soup.find("ul", {"class": "sub-menu"})
+    seasons_container = soup.find("div", {"class": "drp-seasons"}).find("ul", {"class": "sub-menu"})
     seasons: list[SeasonAccess] = []
 
     if seasons_container:
