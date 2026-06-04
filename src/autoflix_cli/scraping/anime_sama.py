@@ -112,11 +112,13 @@ def get_series(url: str) -> SamaSeries:
 
     soup = BeautifulSoup(response.text, "html5lib")
 
-    title: str = soup.find("h4", {"id": "titreOeuvre"}).text
+    title: str = soup.h1.text
     img: str = soup.find("img", {"id": "coverOeuvre"}).attrs["src"]
-    genres: list[str] = soup.find("a", {"class": "text-sm text-gray-300"}).text.split(
-        ", "
-    )
+    genres: list[str] = []
+
+    genres_div = soup.find("div", {"class": "genres-wrap"})
+    for genre in genres_div.find_all("span"):
+        genres.append(genre.text.strip())
 
     seasons: list[SeasonAccess] = []
 
