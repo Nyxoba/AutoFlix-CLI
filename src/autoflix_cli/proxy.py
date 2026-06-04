@@ -41,11 +41,17 @@ def get_base_url(url):
     return url.rsplit("/", 1)[0] + "/"
 
 
-def create_session(headers_dict=None):
-    """Creates a curl_cffi session optimized for anonymity."""
-    session = requests.Session(impersonate="chrome")
-    # Apply specific DNS options
-    session.curl_options.update(DNS_OPTIONS)
+_session_cache = {}
+
+def get_or_create_session(url, headers_dict=None):
+    domain = urllib.parse.urlparse(url).netloc
+    
+    if domain not in _session_cache:
+        session = requests.Session(impersonate="chrome")
+        session.curl_options.update(DNS_OPTIONS)
+        _session_cache[domain] = session
+    
+    session = _session_cache[domain]
 
     if headers_dict:
         session.headers.update(headers_dict)
@@ -54,12 +60,8 @@ def create_session(headers_dict=None):
 
 
 def fetch_with_retry(url, headers, method="GET", stream=False, max_retries=3):
-    """
-    Performs a request with an automatic retry system.
-    Handles timeouts and network errors to avoid breaking the stream.
-    """
     attempt = 0
-    session = create_session(headers)
+    session = get_or_create_session(url, headers)
 
     while attempt < max_retries:
         try:
