@@ -113,7 +113,13 @@ def get_series(url: str) -> SamaSeries:
     soup = BeautifulSoup(response.text, "html5lib")
 
     title: str = soup.h1.text
-    img: str = soup.find("img", {"id": "coverOeuvre"}).attrs["src"]
+
+    img_container = soup.find("img", {"id": "coverOeuvre"})
+    if img_container:
+        img: str = img_container.attrs["src"]
+    else:
+        img: str = None
+
     genres: list[str] = []
 
     genres_div = soup.find("div", {"class": "genres-wrap"})
