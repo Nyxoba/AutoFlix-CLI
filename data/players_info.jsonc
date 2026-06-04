@@ -79,6 +79,9 @@
     "referrer": "full",
     "no-header": true,
   },
+  "uqload.is": {
+    "type": "default"
+  },
   "uqload": {
     "type": "uqload",
     "sec_headers": "Sec-Fetch-Dest:video;Sec-Fetch-Mode:no-cors;Sec-Fetch-Site:same-site",
