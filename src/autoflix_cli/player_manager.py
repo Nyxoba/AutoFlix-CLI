@@ -12,6 +12,7 @@ from .cli_utils import (
     print_info,
     print_error,
     print_success,
+    print_warning,
     console,
 )
 from .scraping import player

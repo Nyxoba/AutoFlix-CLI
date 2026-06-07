@@ -10,8 +10,12 @@ from ..cli_utils import (
     get_user_input,
     clean_title,
 )
-from .anime_sama import anime_sama
+from . import anime_sama as anime_sama_handler
+from ..scraping import anime_sama as anime_sama_scraper
 from . import goldenanime
+from . import arkanime as arkanime_handler
+from ..scraping import arkanime as arkanime_scraper
+from .playback import play_episode_flow
 from ..player_manager import play_video
 from ..scraping import player
 
@@ -77,10 +81,10 @@ def handle_anilist_continue():
         print_info(f"Target: [cyan]{media_title}[/cyan] - Episode {next_episode_num}")
 
     # --- Provider Selection ---
-    providers = ["Anime-Sama (VF/VOSTFR)", "GoldenAnime (VO)", "← Back"]
+    providers = ["Anime-Sama (VF/VOSTFR)", "GoldenAnime (VO)", "⛩️ ArkAnime (Anime & Animations)", "← Back"]
     p_choice = select_from_list(providers, "Select Provider:")
 
-    if p_choice == 2:  # Back
+    if p_choice == 3:  # Back
         return
 
     # Extract cover URL for both providers
@@ -97,74 +101,151 @@ def handle_anilist_continue():
         )
         return
 
-    # --- Existing Anime-Sama logic ---
-    anime_sama.get_website_url()
+    romaji_title = selected_entry["media"]["title"]["romaji"]
 
+    if p_choice == 2:  # ArkAnime
+        series = _search_and_select_series(arkanime_scraper, media_title, romaji_title)
+        if not series or not series.seasons:
+            if series and not series.seasons:
+                print_warning("No seasons found.")
+            return
+
+        season = _auto_select_season(series.seasons, media_title, romaji_title)
+        tracker.set_anilist_mapping("ArkAnime", series.title, media_id, season.title)
+
+        episodes = season.episodes
+        if not episodes:
+            print_warning("No episodes found.")
+            return
+
+        start_ep_idx = _auto_select_episode(episodes, next_episode_num)
+        
+        class SeriesDummy:
+            def __init__(self, t): self.title = t
+        series_dummy = SeriesDummy(series.title)
+
+        ep_idx = start_ep_idx
+        while True:
+            selected_episode = episodes[ep_idx]
+            success = play_episode_flow(
+                provider_name="ArkAnime",
+                series_title=series.title,
+                season_title=season.title,
+                episode=selected_episode,
+                series_url=series.id,
+                season_url=str(season.id),
+                logo_url=series.img,
+                headers={"Referer": arkanime_scraper.website_origin},
+                anilist_callback=lambda: arkanime_handler._update_anilist_progress(
+                    series_dummy, season, selected_episode
+                ),
+            )
+            if success and ep_idx + 1 < len(episodes):
+                if select_from_list(["Yes", "No"], f"Play next: {episodes[ep_idx+1].title}?") == 0:
+                    ep_idx += 1
+                    continue
+            break
+
+    else:  # Anime-Sama
+        series = _search_and_select_series(anime_sama_scraper, media_title, romaji_title)
+        if not series or not series.seasons:
+            if series and not series.seasons:
+                print_warning("No seasons found.")
+            return
+
+        selected_season_access = _auto_select_season(series.seasons, media_title, romaji_title)
+        
+        print_info(f"Loading [cyan]{selected_season_access.title}[/cyan]...")
+        season = anime_sama_scraper.get_season(selected_season_access.url)
+        tracker.set_anilist_mapping("Anime-Sama", series.title, media_id, season.title)
+
+        langs = list(season.episodes.keys())
+        if not langs:
+            print_warning("No episodes found.")
+            return
+            
+        lang_idx = select_from_list(langs, "🌍 Select Language:")
+        episodes = season.episodes[langs[lang_idx]]
+
+        start_ep_idx = _auto_select_episode(episodes, next_episode_num)
+        
+        class SeriesDummy:
+            def __init__(self, t): self.title = t
+        series_dummy = SeriesDummy(series.title)
+
+        ep_idx = start_ep_idx
+        while True:
+            selected_episode = episodes[ep_idx]
+            success = play_episode_flow(
+                provider_name="Anime-Sama",
+                series_title=series.title,
+                season_title=season.title,
+                episode=selected_episode,
+                series_url=series.url,
+                season_url=selected_season_access.url,
+                logo_url=series.img,
+                headers={"Referer": anime_sama_scraper.website_origin},
+                anilist_callback=lambda: anime_sama_handler._update_anilist_progress(
+                    series_dummy, season, selected_episode
+                ),
+            )
+            if success and ep_idx + 1 < len(episodes):
+                if select_from_list(["Yes", "No"], f"Play next: {episodes[ep_idx+1].title}?") == 0:
+                    ep_idx += 1
+                    continue
+            break
+
+
+def _search_and_select_series(scraper, media_title, romaji_title):
+    scraper.get_website_url()
     cleaned_title = clean_title(media_title)
+    
+    # Try to extract a clean name for printing without 'autoflix_cli.scraping.'
+    scraper_name = scraper.__name__.split('.')[-1]
+    if scraper_name == "anime_sama": scraper_name = "Anime-Sama"
+    elif scraper_name == "arkanime": scraper_name = "ArkAnime"
+    
+    print_info(f"Searching for '{media_title}' on {scraper_name}...")
+    results = scraper.search(media_title)
 
-    print_info(f"Searching for '{media_title}' on Anime-Sama...")
-    results = anime_sama.search(media_title)
-
-    # Fallback 1: Try Cleaned English Title
     if not results and cleaned_title != media_title:
         print_info(f"No results for full title. Trying cleaned: '{cleaned_title}'...")
-        results = anime_sama.search(cleaned_title)
+        results = scraper.search(cleaned_title)
 
-    # Fallback 2: Try Romaji
-    romaji_title = selected_entry["media"]["title"]["romaji"]
     if not results and romaji_title and romaji_title != media_title:
-        print_warning(
-            f"No results for English title. Trying Romaji: '{romaji_title}'..."
-        )
-        results = anime_sama.search(romaji_title)
-
-        # Fallback 2.1: Try Cleaned Romaji
+        print_warning(f"No results for English title. Trying Romaji: '{romaji_title}'...")
+        results = scraper.search(romaji_title)
         if not results:
             cleaned_romaji = clean_title(romaji_title)
             if cleaned_romaji != romaji_title:
                 print_info(f"Trying cleaned Romaji: '{cleaned_romaji}'...")
-                results = anime_sama.search(cleaned_romaji)
+                results = scraper.search(cleaned_romaji)
 
-    # Fallback 3: Manual Search
     if not results:
-        print_warning("No results found on Anime-Sama.")
-        choice = select_from_list(
-            ["Try Manual Search", "Cancel"], "What would you like to do?"
-        )
+        print_warning(f"No results found on {scraper_name}.")
+        choice = select_from_list(["Try Manual Search", "Cancel"], "What would you like to do?")
         if choice == 0:
             manual_query = get_user_input("Enter search query")
-            results = anime_sama.search(manual_query)
+            results = scraper.search(manual_query)
             if not results:
                 print_error("Still no results found.")
-                return
+                return None
         else:
-            return
+            return None
 
-    # Let user confirm the match to be safe
-    r_idx = select_from_list(
-        [r.title for r in results] + ["Cancel"], "Select the matching result:"
-    )
+    r_idx = select_from_list([r.title for r in results] + ["Cancel"], "Select the matching result:")
     if r_idx == len(results):
-        return
+        return None
 
     selection = results[r_idx]
-
-    # Now just use the Anime-Sama handler logic but bypass search?
-    # Or just jump into getting series...
-
     print_info(f"Loading [cyan]{selection.title}[/cyan]...")
-    series = anime_sama.get_series(selection.url)
+    return scraper.get_series(selection.url)
 
-    if not series.seasons:
-        print_warning("No seasons found.")
-        return
 
-    # Try to auto-select the season if the title had a season number
+def _auto_select_season(series_seasons, media_title, romaji_title):
     target_season_num = None
-    # Check media_title or romaji_title for "Season X"
     for t in [media_title, romaji_title]:
-        if not t:
-            continue
+        if not t: continue
         match = re.search(r"Season\s+(\d+)", t, re.IGNORECASE)
         if match:
             target_season_num = int(match.group(1))
@@ -174,68 +255,40 @@ def handle_anilist_continue():
             target_season_num = int(match.group(1))
             break
 
-    # Also check if it's "Part X" which sometimes maps to seasons on providers
     if target_season_num is None:
         for t in [media_title, romaji_title]:
-            if not t:
-                continue
+            if not t: continue
             match = re.search(r"Part\s+(\d+)", t, re.IGNORECASE)
             if match:
-                # Part 1 is usually Season 1, Part 2 could be Season 2 or just Part 2
                 target_season_num = int(match.group(1))
                 break
 
     default_season_idx = 0
     if target_season_num is not None:
-        # Try to find "Saison X" or "Season X" or just "X" in series.seasons
-        for i, s in enumerate(series.seasons):
+        for i, s in enumerate(series_seasons):
             s_match = re.search(r"(?:Saison|Season)\s+(\d+)", s.title, re.IGNORECASE)
             if s_match and int(s_match.group(1)) == target_season_num:
                 default_season_idx = i
                 break
-            # Fallback for movie or single season if it matches "Saison 1"
-            if (
-                target_season_num == 1
-                and "Saison" not in s.title
-                and "Season" not in s.title
-            ):
-                # If it's the only season, it's probably it
-                if len(series.seasons) == 1:
+            if target_season_num == 1 and "Saison" not in s.title and "Season" not in s.title:
+                if len(series_seasons) == 1:
                     default_season_idx = 0
                     break
 
     season_idx = select_from_list(
-        [s.title for s in series.seasons],
+        [s.title for s in series_seasons],
         "📺 Select Season:",
         default_index=default_season_idx,
     )
 
     if target_season_num is not None:
         print_info(f"AniList suggests [bold]Season {target_season_num}[/bold].")
+    
+    return series_seasons[season_idx]
 
-    selected_season_access = series.seasons[season_idx]
 
-    print_info(f"Loading [cyan]{selected_season_access.title}[/cyan]...")
-    season = anime_sama.get_season(selected_season_access.url)
-
-    # Now we have the season and the series, and we know the AniList ID (media_id).
-    # We can safely create the mapping.
-    tracker.set_anilist_mapping("Anime-Sama", series.title, media_id, season.title)
-
-    langs = list(season.episodes.keys())
-    if not langs:
-        print_warning("No episodes found.")
-        return
-
-    lang_idx = select_from_list(langs, "🌍 Select Language:")
-    selected_lang = langs[lang_idx]
-    episodes = season.episodes[selected_lang]
-
-    # Find target episode
+def _auto_select_episode(episodes, next_episode_num):
     start_ep_idx = 0
-    # Try to find by number (often title contains number)
-    # This is rough, regex search for next_episode_num
-
     found = False
     for i, ep in enumerate(episodes):
         match = re.search(r"(\d+)", ep.title)
@@ -245,81 +298,9 @@ def handle_anilist_continue():
             break
 
     if not found:
-        print_warning(
-            f"Could not automatically find Episode {next_episode_num}. Please select:"
-        )
-        start_ep_idx = select_from_list(
-            [e.title for e in episodes], "📺 Select Episode:"
-        )
+        print_warning(f"Could not automatically find Episode {next_episode_num}. Please select:")
+        start_ep_idx = select_from_list([e.title for e in episodes], "📺 Select Episode:")
     else:
-        print_success(
-            f"Found Episode {next_episode_num}: {episodes[start_ep_idx].title}"
-        )
+        print_success(f"Found Episode {next_episode_num}: {episodes[start_ep_idx].title}")
 
-    ep_idx = start_ep_idx
-
-    while True:
-        selected_episode = episodes[ep_idx]
-        if not selected_episode.players:
-            return
-
-        supported = [p for p in selected_episode.players if player.is_supported(p.url)]
-        if not supported:
-            print_warning("No supported players found.")
-            return
-
-        playback_success = False
-        while True:
-            player_idx = select_from_list(
-                [f"{p.name} : {p.url.split('/')[2].split('.')[-2]}" for p in supported]
-                + ["← Back"],
-                "🎮 Select Player:",
-            )
-            if player_idx == len(supported):
-                return
-
-            success = play_video(
-                supported[player_idx].url,
-                headers={"Referer": anime_sama.website_origin},
-                title=f"{series.title} - {season.title} - {selected_episode.title}",
-            )
-
-            if success:
-                tracker.save_progress(
-                    provider="Anime-Sama",
-                    series_title=series.title,
-                    season_title=season.title,
-                    episode_title=selected_episode.title,
-                    series_url=series.url,
-                    season_url=selected_season_access.url,
-                    episode_url="",
-                    logo_url=series.img,
-                )
-                playback_success = True
-                break
-            else:
-                if select_from_list(["Retry", "Back"], "Action?") == 1:
-                    return
-
-        if playback_success:
-            # Auto update AniList since we are in AniList mode!
-            print_info(f"Updating AniList to episode {next_episode_num}...")
-            # Recalculate episode num from title just in case user changed episode
-            match = re.search(r"(\d+)", selected_episode.title)
-            if match:
-                current_ep_num = int(match.group(1))
-                if anilist_client.update_progress(media_id, current_ep_num):
-                    print_success("AniList updated!")
-
-            if ep_idx + 1 < len(episodes):
-                if (
-                    select_from_list(
-                        ["Yes", "No"], f"Play next: {episodes[ep_idx+1].title}?"
-                    )
-                    == 0
-                ):
-                    ep_idx += 1
-                    # Update local next_episode_num for next loop AniList update?
-                    # The loop recalculates it from title.
-                    continue
-            break
+    return start_ep_idx
