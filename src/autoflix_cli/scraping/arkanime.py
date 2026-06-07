@@ -15,7 +15,7 @@ from .config import portals
 def get_website_url(portal=portals["arkanime"]):
     global website_origin
 
-    return portal
+    website_origin = portal
 
 
 def search(query: str) -> list[SearchResult]:
@@ -74,7 +74,7 @@ def get_series(url: str) -> SamaSeries:
 
         seasons.append(ArkSeason(id, season_title, episodes))
 
-    return ArkSeries(title, url, img, genres, seasons)
+    return ArkSeries(id=url, title=title, img=img, genres=genres, seasons=seasons)
 
 
 if __name__ == "__main__":

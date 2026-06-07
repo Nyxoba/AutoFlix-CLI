@@ -23,6 +23,7 @@ from .handlers import (
     anilist,
     goldenanime,
     goldenms,
+    arkanime,
 )
 from . import history_ui
 from . import proxy
@@ -56,6 +57,11 @@ def main():
         "🎌 Anime-Sama (Anime and animated movies)",
         anime_sama.handle_anime_sama,
         supported_languages=["fr"],
+    )
+    registry.register(
+        "⛩️ ArkAnime (Anime & Animations)",
+        arkanime.handle_arkanime,
+        supported_languages=["fr", "en"], # Assuming multi or depending on ArkAnime source
     )
     registry.register(
         "✨ GoldenAnime (VO and Subtitles)",
