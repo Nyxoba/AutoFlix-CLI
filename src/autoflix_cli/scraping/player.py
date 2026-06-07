@@ -538,11 +538,11 @@ def get_hls_link_montmyoboky(url, headers):
 
     player_data = response_player.json()
 
-    subtitle_url = player_data["subtitleUrl"]
+    subtitle_url = player_data.get("subtitleUrl")
 
-    return player_data["videoUrl"]
+    return player_data["videoUrl"], subtitle_url
 
-def get_hls_link(url: str, headers: dict = {}) -> str | None:
+def get_hls_link(url: str, headers: dict = {}, return_subs: bool = False) -> str | tuple[str | None, str | None] | None:
     """
     Extract HLS/video link from a player URL.
     Automatically detects the player type and uses the appropriate parser.
@@ -550,9 +550,10 @@ def get_hls_link(url: str, headers: dict = {}) -> str | None:
     Args:
         url: Player URL
         headers: HTTP headers for the request (default: {})
+        return_subs: Whether to also return the subtitle URL if available
 
     Returns:
-        HLS/video stream URL if successful, None otherwise
+        HLS/video stream URL if successful, None otherwise. If return_subs is True, returns (stream_url, subtitle_url).
     """
     global actual_player_config
 
@@ -562,34 +563,43 @@ def get_hls_link(url: str, headers: dict = {}) -> str | None:
             actual_player_config = config
             parse_type = config["type"]
 
+            stream_url = None
+            subtitle_url = None
+
             if parse_type == "default":
-                return get_hls_link_default(url, headers)
+                stream_url = get_hls_link_default(url, headers)
             elif parse_type == "sendvid":
-                return get_hls_link_sendvid(url)
+                stream_url = get_hls_link_sendvid(url)
             elif parse_type == "sibnet":
-                return get_hls_link_sibnet(url)
+                stream_url = get_hls_link_sibnet(url)
             elif parse_type == "uqload":
-                return get_hls_link_uqload(url, headers)
+                stream_url = get_hls_link_uqload(url, headers)
             elif parse_type == "vidoza":
-                return get_hls_link_vidoza(url, headers)
+                stream_url = get_hls_link_vidoza(url, headers)
             elif parse_type == "filemoon":
-                return get_hls_link_filemoon(url, headers)
+                stream_url = get_hls_link_filemoon(url, headers)
             elif parse_type == "kakaflix":
-                return get_hls_link_kakaflix(url, headers)
+                stream_url = get_hls_link_kakaflix(url, headers)
             elif parse_type == "myvidplay":
-                return get_hls_link_myvidplay(url, headers)
+                stream_url = get_hls_link_myvidplay(url, headers)
             elif parse_type == "vidmoly":
-                return get_hls_link_vidmoly(url, headers)
+                stream_url = get_hls_link_vidmoly(url, headers)
             elif parse_type == "embed4me":
-                return get_hls_link_embed4me(url)
+                stream_url = get_hls_link_embed4me(url)
             elif parse_type == "veev":
-                return get_hls_link_veev(url)
+                stream_url = get_hls_link_veev(url)
             elif parse_type == "xtremestream":
-                return get_hls_link_xtremestream(url, headers)
+                stream_url = get_hls_link_xtremestream(url, headers)
             elif parse_type == "montmyoboky":
-                return get_hls_link_montmyoboky(url, headers)
+                stream_url, subtitle_url = get_hls_link_montmyoboky(url, headers)
+
+            if return_subs:
+                return stream_url, subtitle_url
+            return stream_url
 
     actual_player_config = None
+    if return_subs:
+        return None, None
     return None
 
 

@@ -146,7 +146,14 @@ def play_video(
                 console=console,
             ) as progress:
                 progress.add_task(description="Getting stream URL...", total=None)
-                stream_url = player.get_hls_link(url, headers)
+                stream_res = player.get_hls_link(url, headers, return_subs=True)
+                if isinstance(stream_res, tuple):
+                    stream_url, extracted_sub = stream_res
+                    if extracted_sub and not subtitle_url:
+                        subtitle_url = extracted_sub
+                else:
+                    stream_url = stream_res
+
                 if stream_url and stream_url.startswith("/"):
                     stream_url = (
                         "https://"
