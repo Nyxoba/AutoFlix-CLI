@@ -159,6 +159,40 @@ class SamaSeries:
     def __repr__(self):
         return str(self)
 
+class ArkSeason:
+    def __init__(
+        self, id:str, title: str, episodes: list[Episode]
+    ):
+        self.id = id
+        self.title = title
+        self.episodes = episodes
+
+    def __str__(self):
+        return f"ArkSeason(id='{self.id}', title='{self.title}', episodes={self.episodes})"
+
+    def __repr__(self):
+        return str(self)
+
+class ArkSeries:
+    def __init__(
+        self,
+        id:str,
+        title: str,
+        img: str,
+        genres: list[str],
+        seasons: list[ArkSeason],
+    ):
+        self.id = id
+        self.title = title
+        self.img = img
+        self.genres = genres
+        self.seasons = seasons
+
+    def __str__(self):
+        return f"ArkSeries(id='{self.id}', title='{self.title}', img='{self.img}', genres={self.genres}, seasons={self.seasons})"
+
+    def __repr__(self):
+        return str(self)
 
 class CoflixMovie:
     def __init__(
