@@ -48,9 +48,12 @@ def play_episode_flow(
     while True:
         # Player Selection Menu
         player_options = [
-            f"{p.name} : {p.url.split('/')[2].split('.')[-2]}"
-            for p in supported_players
         ]
+        for p in supported_players:
+            try:
+                player_options.append(f"{p.name} : {p.url.split('/')[2].split('.')[-2]}")
+            except:
+                player_options.append(p.name)
         player_options.append("← Back")
 
         player_idx = select_from_list(

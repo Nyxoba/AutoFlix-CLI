@@ -1,3 +1,4 @@
+from autoflix_cli.scraping import arkanime
 from curl_cffi import requests
 from .deobfuscate import deobfuscate
 from bs4 import BeautifulSoup
@@ -524,6 +525,22 @@ def get_hls_link_xtremestream(url, headers):
 
     return f"https://{url_root}/player/xs1.php?data={data_id}"
 
+def get_hls_link_montmyoboky(url, headers):
+    response = scraper.post(url=arkanime.website_origin + "/api/watch/token", data={
+        "episodeId": url.split(":")[1]
+    }, headers=headers)
+    response.raise_for_status()
+
+    episode_data = response.json()
+
+    response_player = scraper.get(f'{arkanime.website_origin}/api/source/resolve?token={episode_data["token"]}', headers=headers)
+    response_player.raise_for_status()
+
+    player_data = response_player.json()
+
+    subtitle_url = player_data["subtitleUrl"]
+
+    return player_data["videoUrl"]
 
 def get_hls_link(url: str, headers: dict = {}) -> str | None:
     """
@@ -569,6 +586,8 @@ def get_hls_link(url: str, headers: dict = {}) -> str | None:
                 return get_hls_link_veev(url)
             elif parse_type == "xtremestream":
                 return get_hls_link_xtremestream(url, headers)
+            elif parse_type == "montmyoboky":
+                return get_hls_link_montmyoboky(url, headers)
 
     actual_player_config = None
     return None

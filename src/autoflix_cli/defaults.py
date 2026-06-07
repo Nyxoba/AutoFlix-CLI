@@ -99,6 +99,7 @@ DEFAULT_PLAYERS = {
     "coflix.upn": {"type": "embed4me"},
     "veev": {"type": "veev", "ext": "mp4"},
     "xtremestream": {"type": "xtremestream"},
+    "montmyoboky": {"type": "montmyoboky"}
 }
 
 DEFAULT_NEW_URL = {

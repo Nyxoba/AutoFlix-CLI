@@ -52,25 +52,27 @@ def get_series(url: str) -> SamaSeries:
         season_title = season["title"]
         
         episodes: list[Episode] = []
-        for episode in season["episodes"]:
-            players = [
-                Player("montmyoboky (default)", "montmyoboky:" + str(episode["id"]))
-            ]
-
-            episodes.append(Episode(f"Episode {episode['number']} : " + episode["title"], players=players))
-
-        for arc in season["arcs"]:
-            arc_url = website_origin + f"/api/anime/{url}/seasons/{id}/episodes?from={arc['episodeStart']}&to={arc['episodeEnd']}"
-            arc_response = scraper.get(arc_url)
-            arc_response.raise_for_status()
-
-            arc_json = arc_response.json()
-            for episode in arc_json["episodes"]:
+        if season["episodes"]:
+            for episode in season["episodes"]:
                 players = [
-                   Player("montmyoboky (default)", "montmyoboky:" + str(episode["id"]))
+                    Player("montmyoboky (default)", "montmyoboky:" + str(episode["id"]))
                 ]
 
                 episodes.append(Episode(f"Episode {episode['number']} : " + episode["title"], players=players))
+
+        elif season["arcs"]:
+            for arc in season["arcs"]:
+                arc_url = website_origin + f"/api/anime/{url}/seasons/{id}/episodes?from={arc['episodeStart']}&to={arc['episodeEnd']}"
+                arc_response = scraper.get(arc_url)
+                arc_response.raise_for_status()
+
+                arc_json = arc_response.json()
+                for episode in arc_json["episodes"]:
+                    players = [
+                        Player("montmyoboky (default)", "montmyoboky:" + str(episode["id"]))
+                    ]
+
+                    episodes.append(Episode(f"Episode {episode['number']} : " + episode["title"], players=players))
 
         seasons.append(ArkSeason(id, season_title, episodes))
 
